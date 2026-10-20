@@ -149,6 +149,7 @@ bool isValidPlayer(char playerId) {
     return playerId >= '0' && playerId <= '9';
 }
 
+
 bool loadMap(Labyrinth *labyrinth, const char *filename) {
     // TODO: Implement this function
     FILE* file = fopen(filename,"r");
@@ -186,7 +187,8 @@ bool loadMap(Labyrinth *labyrinth, const char *filename) {
 
             labyrinth->map[row][i]=c;
         }
-        labyrinth->map[row][labyrinth->cols] = '\0';
+        //行末尾加上结束符
+        labyrinth->map[row][labyrinth->cols] = '\0';//
         row++;
     }
 
@@ -380,8 +382,6 @@ bool isConnected(Labyrinth *labyrinth) {
             }
         }
     }
-
-
 
     return total==res;
 }

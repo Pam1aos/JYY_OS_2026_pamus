@@ -54,6 +54,126 @@ static int get_ppid_from_stat(pid_t pid, pid_t *ppid_out) {
     return 0;
 }
 
+
+
+
+static int buildPidInfo() {
+/*
+ *   获取当前进程和父进程的 PID 和 comm
+ */
+
+    pid_t self = getpid();
+    pid_t parent = getppid();
+
+    char self_comm[256] = "?", parent_comm[256] = "?";
+    read_comm(self, self_comm, sizeof self_comm);
+    read_comm(parent, parent_comm, sizeof parent_comm);
+
+    printf("%s(%d)\n", parent_comm, parent);
+
+/*
+ *     打开 /proc 虚拟目录，初始化遍历环境,
+ *
+ *     循环遍历所有目录项 + 过滤筛选兄弟进程
+ */
+
+    DIR *d = opendir("/proc");
+    if (!d) { perror("opendir /proc"); return 1; }
+
+    struct dirent *de;
+    while ((de = readdir(d)) != NULL) {
+        if (!isdigit((unsigned char)de->d_name[0])) continue;
+        pid_t pid = (pid_t)atoi(de->d_name);
+
+        pid_t ppid;
+        if (get_ppid_from_stat(pid, &ppid) != 0) continue;
+//        if (ppid != parent) continue;
+
+
+        if(pid_count>= MAX_PROCS)break;
+
+        pidinfos[pid_count].pid = pid;
+        pidinfos[pid_count].ppid = ppid;
+        pidinfos[pid_count].first_child_index = -1;
+        pidinfos[pid_count].next_sibling_index = -1;
+
+        char comm[256] = "?";
+        if (read_comm(pid, pidinfos[pid_count].comm, sizeof(pidinfos[pid_count].comm) != 0)
+            snprintf(pidinfos[pid_count].comm, sizeof (pidinfos[pid_count].comm), "?");
+        pid_count++;
+//        printf("  |- %s(%d)%s\n", comm, pid, (pid == self) ? "  <== me" : "");
+    }
+    closedir(d);
+
+    return 0;
+}
+
+
+static int find_pid_index(pid_t pid) {
+    for (int i = 0; i < pid_count; i++) {
+        if (pidinfos[i].pid == pid)
+            return i;
+    }
+    return -1;
+}
+
+
+static int link_proc_tree(void){
+    for (int i = 0; i < pid_count; ++i) {
+        int parent = find_pid_index(pidinfos[i].ppid);
+
+        if(parent<0)continue;
+
+        pidinfos[i].next_sibling_index = pidinfos[parent].first_child_index;
+        pidinfos[parent].first_child_index = i;
+    }
+
+    return 0;
+}
+
+void print_Tree(PidInfo* pidInfo,int index,const char *prefix,is_last,int show_pids,int show_ns){
+    if(index<0 || index>=pid_count)return;
+
+    PidInfo* p = &pidInfo[index];
+
+    printf("%s",prefix);
+    if(is_last) {
+        printf("%s└─ %s(%d)\n");
+    }else  {
+        printf("%s├─ %s(%d)\n");
+    }
+
+
+    if (show_pids)
+        printf("%s(%d)\n", p->comm, p->pid);
+    else
+        printf("%s\n", p->comm);
+
+
+    char new_prefix[64];
+    if(is_last){
+        snprintf(new_prefix,sizeof(new_prefix),"%s    ",prefix);
+    else{
+        snprintf(new_prefix,sizeof(new_prefix),"%s│   ",prefix);
+    }
+
+    if(show_ns) {
+        int kid =0;
+
+        /*/
+         * to be continue
+         */
+    }else{
+        int child = p->first_child_index;
+        while (child!=-1){
+            int next_child = pidInfo[child].next_sibling_index;
+            print_Tree(pidInfo,child,new_prefix,next_child==-1);
+            child = next_child;
+        }
+
+    }
+}
+
 int main(int argc, char *argv[]) {
 
 //    char* show-pids = NULL;
@@ -100,90 +220,13 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    if(show_ns){
-        printf("pstree: 1.0.0\n");
-        return 0;
-    }
-
-    if(show_version){
-        printf("pstree: 1.0.0\n");
-        return 0;
-    }
 
     if(buildPidInfo()!=0) return -1;
     link_proc_tree();
 
 
+    print_Tree(pidinfos,find_pid_index(getpid()),"",1,show_pid,show_ns);
 
-    return 0;
-}
-
-static int find_pid_index(pid_t pid) {
-    for (int i = 0; i < pid_count; i++) {
-        if (pidinfos[i].pid == pid)
-            return i;
-    }
-    return -1;
-}
-
-static int link_proc_tree(void){
-    for (int i = 0; i < pid_count; ++i) {
-        int parent = find_pid_index(pidinfos[i].ppid);
-
-        if(parent<0)continue;
-
-        pidinfos[i].next_sibling_index = pidinfos[parent].first_child_index;
-        pidinfos[parent].first_child_index = i;
-    }
-}
-
-statc int buildPidInfo() {
-/*
- *   获取当前进程和父进程的 PID 和 comm
- */
-
-    pid_t self = getpid();
-    pid_t parent = getppid();
-
-    char self_comm[256] = "?", parent_comm[256] = "?";
-    read_comm(self, self_comm, sizeof self_comm);
-    read_comm(parent, parent_comm, sizeof parent_comm);
-
-    printf("%s(%d)\n", parent_comm, parent);
-
-/*
- *     打开 /proc 虚拟目录，初始化遍历环境,
- *
- *     循环遍历所有目录项 + 过滤筛选兄弟进程
- */
-
-    DIR *d = opendir("/proc");
-    if (!d) { perror("opendir /proc"); return 1; }
-
-    struct dirent *de;
-    while ((de = readdir(d)) != NULL) {
-        if (!isdigit((unsigned char)de->d_name[0])) continue;
-        pid_t pid = (pid_t)atoi(de->d_name);
-
-        pid_t ppid;
-        if (get_ppid_from_stat(pid, &ppid) != 0) continue;
-        if (ppid != parent) continue;
-
-
-        if(pid_count>= MAX_PROCS)break;
-
-        pidinfos[pid_count].pid = pid;
-        pidinfos[pid_count].ppid = ppid;
-        pidinfos[pid_count].first_child_index = -1;
-        pidinfos[pid_count].next_sibling_index = -1;
-
-        char comm[256] = "?";
-        if (read_comm(pid, p->comm, sizeof p->comm) != 0)
-            snprintf(p->comm, sizeof p->comm, "?");
-        pid_count++;
-//        printf("  |- %s(%d)%s\n", comm, pid, (pid == self) ? "  <== me" : "");
-    }
-    closedir(d);
 
     return 0;
 }

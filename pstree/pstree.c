@@ -98,7 +98,7 @@ static int buildPidInfo() {
         pidinfos[pid_count].next_sibling_index = -1;
 
         char comm[256] = "?";
-        if (read_comm(pid, pidinfos[pid_count].comm, sizeof(pidinfos[pid_count].comm) != 0)
+        if (read_comm(pid, pidinfos[pid_count].comm, sizeof(pidinfos[pid_count].comm)) != 0)
             snprintf(pidinfos[pid_count].comm, sizeof (pidinfos[pid_count].comm), "?");
         pid_count++;
 //        printf("  |- %s(%d)%s\n", comm, pid, (pid == self) ? "  <== me" : "");
@@ -131,7 +131,7 @@ static int link_proc_tree(void){
     return 0;
 }
 
-void print_Tree(PidInfo* pidInfo,int index,const char *prefix,is_last,int show_pids,int show_ns){
+void print_Tree(PidInfo* pidInfo,int index,const char *prefix,int is_last,int show_sp,int show_ns){
     if(index<0 || index>=pid_count)return;
 
     PidInfo* p = &pidInfo[index];
@@ -144,7 +144,7 @@ void print_Tree(PidInfo* pidInfo,int index,const char *prefix,is_last,int show_p
     }
 
 
-    if (show_pids)
+    if (show_sp)
         printf("%s(%d)\n", p->comm, p->pid);
     else
         printf("%s\n", p->comm);
@@ -153,7 +153,7 @@ void print_Tree(PidInfo* pidInfo,int index,const char *prefix,is_last,int show_p
     char new_prefix[64];
     if(is_last){
         snprintf(new_prefix,sizeof(new_prefix),"%s    ",prefix);
-    else{
+    }else{
         snprintf(new_prefix,sizeof(new_prefix),"%s│   ",prefix);
     }
 
@@ -225,7 +225,7 @@ int main(int argc, char *argv[]) {
     link_proc_tree();
 
 
-    print_Tree(pidinfos,find_pid_index(getpid()),"",1,show_pid,show_ns);
+    print_Tree(pidinfos,find_pid_index(getpid()),"",1,show_sp,show_ns);
 
 
     return 0;

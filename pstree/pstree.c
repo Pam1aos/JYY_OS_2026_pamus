@@ -7,7 +7,7 @@
 #include <getopt.h>
 
 
-#define MAX_PROCS 32768
+#define MAX_PROCS 4096
 
 typedef struct Pidinfo{
     pid_t pid, ppid;
@@ -18,6 +18,16 @@ typedef struct Pidinfo{
 
 static PidInfo pidinfos[MAX_PROCS];
 static int pid_count = 0;
+
+static int cmp_child(const void *a, const void *b){
+    int tmp_a = *(const int *)a;
+    int tmp_b = *(const int *)b;
+
+    int pid_a = pidinfos[tmp_a].pid;
+    int pid_b = pidinfos[tmp_b].pid;
+
+    return pid_a - pid_b;
+}
 
 
 void printUsage() {
@@ -69,7 +79,7 @@ static int buildPidInfo() {
     read_comm(self, self_comm, sizeof self_comm);
     read_comm(parent, parent_comm, sizeof parent_comm);
 
-    printf("%s(%d)\n", parent_comm, parent);
+//    printf("%s(%d)\n", parent_comm, parent);
 
 /*
  *     打开 /proc 虚拟目录，初始化遍历环境,
@@ -136,18 +146,32 @@ void print_Tree(PidInfo* pidInfo,int index,const char *prefix,int is_last,int sh
 
     PidInfo* p = &pidInfo[index];
 
-    printf("%s",prefix);
-    if(is_last) {
-        printf("%s└─ %s(%d)\n");
-    }else  {
-        printf("%s├─ %s(%d)\n");
+//    printf("%s",prefix);
+//    if(is_last) {
+//        printf("%s└─ %s(%d)\n");
+//    }else  {
+//        printf("%s├─ %s(%d)\n");
+//    }
+//
+//
+//    if (show_sp)
+//        printf("%s(%d)\n", p->comm, p->pid);
+//    else
+//        printf("%s\n", p->comm);
+    printf("%s", prefix);
+    if (is_last) {
+        if (show_sp) {
+            printf("└─ %s(%d)\n", p->comm, p->pid);
+        } else {
+            printf("└─ %s\n", p->comm);
+        }
+    } else {
+        if (show_sp) {
+            printf("├─ %s(%d)\n", p->comm, p->pid);
+        } else {
+            printf("├─ %s\n", p->comm);
+        }
     }
-
-
-    if (show_sp)
-        printf("%s(%d)\n", p->comm, p->pid);
-    else
-        printf("%s\n", p->comm);
 
 
     char new_prefix[64];
@@ -158,17 +182,32 @@ void print_Tree(PidInfo* pidInfo,int index,const char *prefix,int is_last,int sh
     }
 
     if(show_ns) {
-        int kid =0;
+        int kids[256];
+        int kid_cnt=0;
+        int cur=p->first_child_index;
 
+        while(cur!=-1 && kid_cnt<256){
+            kids[kid_cnt++] = cur;
+            cur = pidInfo[cur].next_sibling_index;
+        }
+
+        qsort(kids,kid_cnt,sizeof(int),cmp_child);
+
+        for (int i = 0; i < kid_cnt; i++)
+        {
+            int kid_idx = kids[i];
+            int kid_is_last = (i == kid_cnt - 1);
+            print_Tree(pidInfo, kid_idx, new_prefix, kid_is_last, show_sp, show_ns);
+        }
         /*/
          * to be continue
          */
     }else{
-        int child = p->first_child_index;
-        while (child!=-1){
-            int next_child = pidInfo[child].next_sibling_index;
-            print_Tree(pidInfo,child,new_prefix,next_child==-1);
-            child = next_child;
+        int cur = p->first_child_index;
+        while (cur!=-1){
+            int next_child = pidInfo[cur].next_sibling_index;
+            print_Tree(pidInfo,cur,new_prefix,next_child==-1,show_sp,show_ns);
+            cur = next_child;
         }
 
     }
@@ -221,11 +260,12 @@ int main(int argc, char *argv[]) {
     }
 
 
-    if(buildPidInfo()!=0) return -1;
-    link_proc_tree();
+//    if(show_sp){
+        if(buildPidInfo()!=0) return -1;
+        link_proc_tree();
+        print_Tree(pidinfos,find_pid_index(getpid()),"",1,show_sp,show_ns);
+//    }
 
-
-    print_Tree(pidinfos,find_pid_index(getpid()),"",1,show_sp,show_ns);
 
 
     return 0;

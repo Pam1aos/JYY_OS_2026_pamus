@@ -1,7 +1,34 @@
 #include <stdio.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <string.h>
+#include <stdlib.h>
+#include <dlfcn.h>
+#include <sys/wait.h>
+#include <ctype.h>
 
 extern char** environ;
+
+static const char *skip_space(const char *p)
+{
+	while (*p && isspace((unsigned char)*p))
+		p++;
+	return p;
+}
+
+static int is_fun(const char *p){
+	const char*line = skip_space(p);
+	if(strncmp(line,"int",3)!=0){
+		sprintf(stderr,"wrong input");
+		return 0;
+	}
+
+	char tmp=p[3];
+	if(tmp=='\0' || isspace((unsigned char )tmp)||tmp=='(')
+		return 1;
+
+	return 0;
+}
 
 // Compile a function definition and load it
 bool compile_and_load_function(const char* function_def) {
@@ -13,13 +40,17 @@ bool compile_and_load_function(const char* function_def) {
 		return false;
 	}
 
-	if (write(fd,function_def, strlen(function_def)<0){
+//	if (write(fd,function_def, (ssize_t)(strlen(function_def)))){
+//		perror("write");
+//	}
+	size_t n = strlen(function_def);
+	if(write(fd,function_def,n)!=(ssize_t)n){
 		perror("write");
 	}
 	close(fd);
 
-	char so_path[] = "/tmp/tmp-.soXXXXXX";
-	int so_fd = mkstemp(so_path);
+	char so_path[] = "/tmp/tmp-XXXXXX.so";
+	int so_fd = mkstemps(so_path,3);
 	if (so_fd<0){
 		unlink(so_path);
 		return false;
@@ -30,20 +61,73 @@ bool compile_and_load_function(const char* function_def) {
 	pid_t pid = fork();
 	if(pid==0){
 //		char args[]={"gcc","-shared"," -fPIC", path,"-o",};
-		char args[]={"gcc", "-shared", "-fPIC","-Wno-implicit-function-declaration",
+		char *args[]={"gcc", "-shared", "-fPIC","-Wno-implicit-function-declaration",
 					 "-x", "c","-o", so_path,path,NULL};
 		if(execvp("gcc",args)==-1){
+			unlink(path);
+			unlink(so_path);
 			perror("execvp");
 		}
-		_exit();
+		_exit(127);
+	}else if(pid<0){
+		unlink(path);
+		unlink(so_path);
+		return false;
+	}
+	int status;
+//	waitpid(...);
 
-		void* handle = dlopen(so_path, RTLD_NOW | RTLD_GLOBAL);
-		if (!handle) {
-			fprintf(stderr, "dlopen: %d\n", dlerror());
-//			return 1;
-		}
+	if(waitpid(pid,&status,0)<0){
+		unlink(path);
+		unlink(so_path);
+		return false;
+	}
+	// 编译失败
+	if (WEXITSTATUS(status) != 0) {
+		unlink(path);
+		unlink(so_path);
+		return false;
 	}
 
+	void* handle = dlopen(so_path, RTLD_NOW | RTLD_GLOBAL);
+	if (!handle) {
+		fprintf(stderr, "dlopen: %d\n", dlerror());
+			return false;
+	}
+
+//	int lparent_pos = strchr(function_def,"(");
+//	int start_pos=0;
+//	const char*p =  skip_space((function_def)+3);
+	const char *p = skip_space(function_def);
+	if (strncmp(p, "int", 3) != 0) return false;
+	p = skip_space(p + 3);
+
+	const char *start=p;
+	while (isalnum((unsigned char)*p) || *p=='_')  p++;
+	size_t n=(size_t)(p-start);
+
+	char tmp[128];
+//	int tmp_len = strlen(p);
+
+	if (n==0 || n>= sizeof(tmp)){
+		fprintf(stderr,"len too");
+		return false;
+	}
+//	snprintf(buf, sizeof(buf), "func: %s", name);
+	snprintf(tmp,sizeof(tmp),"%.*s",(int)n,start);
+//	for (int i = 0; i <tmp_len ; ++i) {
+//		tmp[i] = p[i];
+//	}
+//	for()
+
+	void *sym = dlsym(handle,tmp);
+	if(!sym) {
+		unlink(path);
+		unlink(so_path);
+		return false;
+	}
+
+//	void *dlsym(void *handle, const char *symbol);
 
 //	int fd =
 //	int lp_pos %dstrchr(function_def,'(');
@@ -52,11 +136,11 @@ bool compile_and_load_function(const char* function_def) {
 //
 //	char*name = function_def[]
 	unlink(path);
+	unlink(so_path);
 
 	close(fd);
 
-    return false;
-
+    return true;
 }
 
 // Evaluate an expression
@@ -64,43 +148,23 @@ bool evaluate_expression(const char* expression, int* result) {
     return false;
 }
 
-static const char *skip_space(const char *p)
-{
-	while (*p && isspace((unsigned char)*p))
-		p++;
-	return p;
-}
-
-static int is_fun(const char *p){
-	const char*line = skip_space(buf);
-	if(strncmp(line,"int",3)!=0){
-		sprintf("wrong input");
-		return 0;
-	}
-
-	char tmp=p[3];
-	if(tmp=='\0' || isspace((unsigned char )tmp)||tmp=='(')
-		return 1;
-
-	return 0;
-}
 
 int main() {
 	char buf[256];
 	while (fgets(buf,sizeof (buf),stdin)){
 		size_t buf_len = strlen(buf);
 		if(buf_len>100)
-			sprintf("wrong args")
+			sprintf(stderr,"wrong args")
 
 		if (buf_len>0 &&buf[buf_len-1]=='\n')
-			buf[buf_len]='\0';
+			buf[buf_len-1]='\0';
 
 		printf("crepl> ");
 		fflush(stdout);
 
 		if(is_fun(buf)){
 			if(compile_and_load_function(buf)){
-				printf("OK.")
+				printf("OK.\n")
 			}else{
 
 			}
@@ -108,4 +172,6 @@ int main() {
 			evaluate_expression(buf,)
 		}
 	}
+
+	return 0;
 }

@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <stdbool.h>
+
 
 // Feel free to rename them.
 bool compile_and_load_function(const char* function_def);

@@ -1,6 +1,6 @@
 NAME := $(shell basename $(PWD))
 export MODULE := M4
-CFLAGS += -ldl
+LDFLAGS += -ldl
 
 all: $(NAME)
 

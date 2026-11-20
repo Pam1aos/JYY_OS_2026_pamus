@@ -1,6 +1,5 @@
 #include <mymalloc.h>
 
-
 #define CHUNK_SIZE sizeof(chunk_t)
 #define min_block 8
 
@@ -14,13 +13,14 @@ typedef struct chunk {
 typedef struct block{
 	size_t size;
 //	struct block *prev;
+	int is_free;
 	struct block *next;
 }block_t;
 
 spinlock_t big_lock;
 
 static chunk_t *my_chunk=NULL;
-static block_t *my_block=NULL;
+static block_t *free_list=NULL;
 
 // We don't need this malloc_count. You can remove it.
 long malloc_count;
@@ -34,6 +34,57 @@ static inline size_t _align_up_page(size_t size){
 	return (size + 4095) & ~4095;
 }
 
+void allocate_freelist(size_t require_size){
+	size_t require_page = _align_up_page(require_size + sizeof(chunk_t)) ;
+
+	//初始化my_chunk
+	if(my_chunk == NULL){
+		my_chunk = vmalloc(NULL,require_page);
+		my_chunk->size = require_page;
+		my_chunk->next = NULL;
+	}
+
+	//遍历chunk，如果该chunk大小满足size，就分配给第一个free_list
+
+	chunk_t *cur = my_chunk;
+//	while (cur!=NULL){
+//		if(cur->size < require_page) {
+//			chunk_t tmp_chunk = vmalloc(NULL,require_page);
+//			tmp_chunk->size = require_page;
+//			cur->next = tmp_chunk;
+//			break;
+//		}
+//		cur = cur->next;
+//	}
+
+	chunk_t tmp_chunk = vmalloc(NULL,require_page);
+	tmp_chunk->size = require_page;
+	cur->next = tmp_chunk;
+
+	free_list->size = cur->size;
+	free_list->is_free = 0;
+	free_list->next=NULL;
+
+
+	return;
+}
+
+void *mymalloc(size_t size) {
+	size_t require_size = _align_up_bytes(size);
+
+	if(free_list ==NULL){
+		free_list =  allocate_freelist(require_size);
+		if(free_list ==NULL){
+			return NULL;
+		}
+	}
+}
+
+void myfree(void *ptr) {
+
+}
+
+/*
 static chunk_t* allocate_chunk(size_t size){
 	size_t align_size = _align_up_page(size);
 
@@ -147,3 +198,4 @@ void *mymalloc(size_t size) {
 void myfree(void *ptr) {
 
 }
+*/

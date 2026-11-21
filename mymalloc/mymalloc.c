@@ -1,6 +1,8 @@
 #include <mymalloc.h>
 
 #define CHUNK_SIZE sizeof(chunk_t)
+#define BLOCK_SIZE sizeof(block_t)
+
 #define min_block 8
 
 typedef struct chunk {
@@ -34,19 +36,105 @@ static inline size_t _align_up_page(size_t size){
 	return (size + 4095) & ~4095;
 }
 
-void allocate_freelist(size_t require_size){
-	size_t require_page = _align_up_page(require_size + sizeof(chunk_t)) ;
+static block_t *allocate_heap(size_t size) {
+	size_t require_page = size + BLOCK_SIZE);
+	size_t chunk_size = _align_up_page(require_page + CHUNK_SIZE);
+
+	chunk_t *tmp_chunk = vmalloc(NULL,chunk_size);
+
+	if(tmp_chunk==NULL)  return NULL;
+
+	tmp_chunk->size = chunk_size;
+	tmp_chunk->next = my_chunk;
+	my_chunk = tmp_chunk;
+
+//	block_t *tmp_block =NULL;
+	block_t *tmp_block = (block_t*)((char *)tmp_chunk + CHUNK_SIZE);
+	tmp_block->size = chunk_size - CHUNK_SIZE;
+	tmp_block->is_free=1;
+	tmp_block->next=free_list;
+	free_list=tmp_block;
+
+	return tmp_block;
+}
+
+static block_t *find_block(size_t size){
+	block_t *tmp_block = free_list;
+
+	while (tmp_block->next!=NULL ){
+		if (tmp_block->size >=size){
+			return tmp_block;
+		}
+		tmp_block=tmp_block->next;
+	}
+
+	return NULL;
+}
+
+static block_t * split_chunk(block_t* cur_blcok,size_t size){
+	block_t *res_block = (block_t*)((char *)cur_blcok);
+	cur_blcok->size -=size;
+	cur_blcok = (block_t*)((char *)cur_blcok-(char *)size);
+
+
+
+}
+
+void *mymalloc(size_t size){
+	size_t require_size = _align_up_bytes(size);
+	size_t total_require = require_size+BLOCK_SIZE;
+
+
+	block_t *tmp_block  =find_block(total_require);
+
+	if(tmp_block!=NULL){
+		if(allocate_heap(total_require)==NULL){
+			spin_unlock(&big_lock);
+			return NULL;
+		}
+	}
+
+	block_t *res_block = split_chunk(tmp_blcok,total_require);
+	return res_block;
+}
+
+void myfree(void *ptr) {
+
+}
+
+
+
+/*
+void allocate_heap(size_t require_size) {
+	size_t require_page = _align_up_page(require_size + sizeof(chunk_t)+sizeof (block_t));
 
 	//初始化my_chunk
-	if(my_chunk == NULL){
-		my_chunk = vmalloc(NULL,require_page);
+	if (my_chunk == NULL) {
+		my_chunk = vmalloc(NULL, require_page);
 		my_chunk->size = require_page;
 		my_chunk->next = NULL;
 	}
 
+	if (free_list == NULL) {
+		chunk_t tmp_chunk = vmalloc(NULL,require_page);
+		tmp_chunk->size = require_page;
+		tmp_chunk.next = NULL;
+		my_chunk->next = tmp_chunk;
+
+		free_list->next=NULL;
+		free_list->is_free=1;
+		free_list->size=tmp_chunk.size;
+	}
+
+	block* tmp_block;
+	tmp_block->next=NULL;
+	tmp_block->is_free=1;
+	tmp_block->size=my_chunk->size;
+	free_list->next = tmp_block;
+
 	//遍历chunk，如果该chunk大小满足size，就分配给第一个free_list
 
-	chunk_t *cur = my_chunk;
+}
 //	while (cur!=NULL){
 //		if(cur->size < require_page) {
 //			chunk_t tmp_chunk = vmalloc(NULL,require_page);
@@ -57,18 +145,22 @@ void allocate_freelist(size_t require_size){
 //		cur = cur->next;
 //	}
 
-	chunk_t tmp_chunk = vmalloc(NULL,require_page);
-	tmp_chunk->size = require_page;
-	cur->next = tmp_chunk;
+//	chunk_t tmp_chunk = vmalloc(NULL,require_page);
+//	tmp_chunk->size = require_page;
+//	cur->next = tmp_chunk;
+//
+//	free_list->size = cur->size;
+//	free_list->is_free = 0;
+//	free_list->next=NULL;
+//
+//
+//	return;
+//}
+*/
 
-	free_list->size = cur->size;
-	free_list->is_free = 0;
-	free_list->next=NULL;
 
 
-	return;
-}
-
+/*
 void *mymalloc(size_t size) {
 	size_t require_size = _align_up_bytes(size);
 
@@ -79,10 +171,7 @@ void *mymalloc(size_t size) {
 		}
 	}
 }
-
-void myfree(void *ptr) {
-
-}
+*/
 
 /*
 static chunk_t* allocate_chunk(size_t size){

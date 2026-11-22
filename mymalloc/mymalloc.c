@@ -37,14 +37,14 @@ static inline size_t _align_up_page(size_t size){
 }
 
 static block_t *allocate_heap(size_t size) {
-	size_t require_page = size + BLOCK_SIZE);
+	size_t require_page = size + BLOCK_SIZE;
 	size_t chunk_size = _align_up_page(require_page + CHUNK_SIZE);
 
 	chunk_t *tmp_chunk = vmalloc(NULL,chunk_size);
 
 	if(tmp_chunk==NULL)  return NULL;
 
-	tmp_chunk->size = chunk_size;
+	tmp_chunk->size = chunk_size-CHUNK_SIZE;
 	tmp_chunk->next = my_chunk;
 	my_chunk = tmp_chunk;
 
@@ -60,42 +60,70 @@ static block_t *allocate_heap(size_t size) {
 
 static block_t *find_block(size_t size){
 	block_t *tmp_block = free_list;
+//
+//	while (tmp_block->next!=NULL ){
+//		if (tmp_block->size >=size){
+//			return tmp_block;
+//		}
+//		tmp_block=tmp_block->next;
+//	}
 
-	while (tmp_block->next!=NULL ){
-		if (tmp_block->size >=size){
+	for (block_t *tmp_block = free_list; tmp_block != NULL; tmp_block = b->next)
+		if (tmp_block->size >= size)
 			return tmp_block;
-		}
-		tmp_block=tmp_block->next;
-	}
 
 	return NULL;
 }
 
-static block_t * split_chunk(block_t* cur_blcok,size_t size){
-	block_t *res_block = (block_t*)((char *)cur_blcok);
-	cur_blcok->size -=size;
-	cur_blcok = (block_t*)((char *)cur_blcok-(char *)size);
+static block_t * split_block(block_t* cur_blcok,size_t size){
+//	block_t *res_block = cur_blcok;
+//	cur_blcok->size -=size;
+//	res_block = (block_t*)((char *)cur_blcok+size);
+//	res_block->is_free=0;
 
+	if(cur_blcok->size -size >=BLOCK_SIZE +min_block){
+//		block_t *res_block = (block_t*)((char *)cur_blcok+size);
+//		res_block = cur_blcok->size -size;
+//		res_block->is_free = 1;
+//		res_block->next = free_list;
+//		free_list = res_block;
+//
+//		cur_blcok->size = size;
 
+		size_t res_size = cur_blcok->size - size;
+		block_t *res_block = (block_t*)((char *)cur_blcok + res_size);
+		res_block->size = size;
+		res_block->is_free = 0;
 
+		cur_blcok->size = res_size;
+
+	}
+
+	cur_blcok->is_free=0;
+
+	return res_block;
 }
 
 void *mymalloc(size_t size){
 	size_t require_size = _align_up_bytes(size);
 	size_t total_require = require_size+BLOCK_SIZE;
 
+	spin_lock(&big_lock);
 
 	block_t *tmp_block  =find_block(total_require);
 
-	if(tmp_block!=NULL){
+	if(tmp_block==NULL){
 		if(allocate_heap(total_require)==NULL){
 			spin_unlock(&big_lock);
 			return NULL;
 		}
 	}
 
-	block_t *res_block = split_chunk(tmp_blcok,total_require);
-	return res_block;
+	block_t *res_block = split_block(tmp_block,total_require);
+
+	spin_unlock(&big_lock);
+
+	return (char *)tmp_block+BLOCK_SIZE;
 }
 
 void myfree(void *ptr) {

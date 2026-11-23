@@ -36,8 +36,19 @@ static inline size_t _align_up_page(size_t size){
 	return (size + 4095) & ~4095;
 }
 
-static block_t *allocate_heap(size_t size) {
-	size_t require_page = size + BLOCK_SIZE;
+static void remove_from_list(block_t*p){
+
+	block_t **free_list_head = &free_list;
+	while (*free_list_head  &&*free_list_head!=p){
+		free_list_head = &(*free_list_head)->next;
+	}
+	if(*free_list_head==p){
+		*free_list_head = p->next;
+	}
+}
+
+static block_t *allocate_heap(size_t need_size) {
+	size_t require_page = need_size;
 	size_t chunk_size = _align_up_page(require_page + CHUNK_SIZE);
 
 	chunk_t *tmp_chunk = vmalloc(NULL,chunk_size);
@@ -59,16 +70,7 @@ static block_t *allocate_heap(size_t size) {
 }
 
 static block_t *find_block(size_t size){
-	block_t *tmp_block = free_list;
-//
-//	while (tmp_block->next!=NULL ){
-//		if (tmp_block->size >=size){
-//			return tmp_block;
-//		}
-//		tmp_block=tmp_block->next;
-//	}
-
-	for (block_t *tmp_block = free_list; tmp_block != NULL; tmp_block = b->next)
+	for (block_t *tmp_block = free_list; tmp_block != NULL; tmp_block = tmp_block->next)
 		if (tmp_block->size >= size)
 			return tmp_block;
 
@@ -80,6 +82,8 @@ static block_t * split_block(block_t* cur_blcok,size_t size){
 //	cur_blcok->size -=size;
 //	res_block = (block_t*)((char *)cur_blcok+size);
 //	res_block->is_free=0;
+
+
 
 	if(cur_blcok->size -size >=BLOCK_SIZE +min_block){
 //		block_t *res_block = (block_t*)((char *)cur_blcok+size);
@@ -96,24 +100,65 @@ static block_t * split_block(block_t* cur_blcok,size_t size){
 		res_block->is_free = 0;
 
 		cur_blcok->size = res_size;
-
+		return res_block;
 	}
 
-	cur_blcok->is_free=0;
+	remove_from_list(cur_blcok);
+	cur_blcok->is_free =0;
+	return cur_blcok;
 
-	return res_block;
+}
+
+static chunk_t * find_chunk(void *p){
+	for (chunk_t*cur_chunk = my_chunk;cur_chunk!=NULL;cur_chunk=cur_chunk->next){
+		char *start =(char *)cur_chunk +CHUNK_SIZE;
+		char *end = (char *)start + cur_chunk->size;
+
+		if((char *)p>=start && (char *)p <end)
+			return cur_chunk;
+	}
+
+	return NULL;
+}
+
+static void merge_block(block_t* tmp_block){
+
+	chunk_t *tmp_chunk = find_chunk(tmp_block);
+	if(tmp_chunk==NULL)
+		return;
+
+	block_t *next = (block_t*)((char *)tmp_block + tmp_block->size);
+
+
+	while ((char *)next <(char *)tmp_chunk +tmp_chunk->size +CHUNK_SIZE && next->is_free){
+
+		remove_from_list(next);
+
+		tmp_block->size +=next->size;
+
+		next=(block_t*)((char *)next+next->size);
+//		vmfree(free_block,free_block->size);
+	}
 }
 
 void *mymalloc(size_t size){
-	size_t require_size = _align_up_bytes(size);
-	size_t total_require = require_size+BLOCK_SIZE;
 
 	spin_lock(&big_lock);
+	malloc_count++;
+
+	if(size==0){
+		spin_unlock(&big_lock);
+		return NULL;
+	}
+
+	size_t require_size = _align_up_bytes(size);
+	size_t total_require = require_size+BLOCK_SIZE;
 
 	block_t *tmp_block  =find_block(total_require);
 
 	if(tmp_block==NULL){
-		if(allocate_heap(total_require)==NULL){
+		tmp_block = allocate_heap(total_require);
+		if (tmp_block == NULL) {
 			spin_unlock(&big_lock);
 			return NULL;
 		}
@@ -123,10 +168,31 @@ void *mymalloc(size_t size){
 
 	spin_unlock(&big_lock);
 
-	return (char *)tmp_block+BLOCK_SIZE;
+	return (char *)res_block+BLOCK_SIZE;
 }
 
 void myfree(void *ptr) {
+	if(ptr ==NULL){
+		return;
+	}
+
+	block_t *tmp_block = (block_t*)((char *)ptr - BLOCK_SIZE);
+
+	spin_lock(&big_lock);
+
+	if(tmp_block->is_free==1){
+		spin_unlock(&big_lock);
+		return;
+	}
+
+	tmp_block->is_free = 1;
+
+	merge_block(tmp_block);
+
+	tmp_block->next =free_list;
+	free_list = tmp_block;
+
+	spin_unlock(&big_lock);
 
 }
 

@@ -12,6 +12,8 @@
 #include "thread.h"
 #include "thread-sync.h"
 
+
+
 // ----------------------------------------------------------------------------
 // all the individual layers' forward passes
 // B = batch_size, T = sequence_length, C = channels, V = vocab_size
@@ -83,6 +85,58 @@ void layernorm_forward(float* out, float* mean, float* rstd,
     }
 }
 
+#define THREAD_NUM 4      // 固定线程数，和CPU核心数匹配
+
+typedef struct {
+	int start_bid;      // 本线程处理的起始下标（包含）
+	int end_bid;        // 本线程处理的结束下标（不包含）
+} ThreadArg;
+
+
+
+static long long calc_one_block(int start_row, int start_col,
+								float* out,float* inp, float* weight, float* bias,
+								int T, int C, int OC){
+
+	float* out_bt = out + start_row * T * OC + start_col * OC;
+
+	float* inp_bt = inp + start_row * T * C + start_col * C;
+
+	for (int o = 0; o < OC; o++) {
+
+		float val = (bias != NULL) ? bias[o] : 0.0f;
+
+		float* wrow = weight + o*C;
+
+		for (int i = 0; i < C; i++) {
+			val += inp_bt[i] * wrow[i];
+		}
+
+		out_bt[o] = val;
+	}
+
+}
+
+void *block_worker(void *arg){
+	ThreadArg *ta = (ThreadArg)*arg;
+
+	int tile = B*T/THREAD_NUM;
+	int block_x = (B+tile-1)/tile;
+	int block_y = (T+tile-1)/tile;
+
+	for(int bid = ta->start_bid;bid<ta->end_bid;bid++){
+		int by = bid/block_x;
+		int bx = bid%block_x;
+
+		int sr = by * tile;
+		int sc = bx * tile;
+
+		long long val = calc_one_block(sr, sc);
+	}
+}
+
+
+
 void matmul_forward(float* out,
                     float* inp, float* weight, float* bias,
                     int B, int T, int C, int OC) {
@@ -90,16 +144,29 @@ void matmul_forward(float* out,
     // OC is short for "output channels"
     // inp is (B,T,C), weight is (OC, C), bias is (OC)
     // out will be (B,T,OC)
+
+	int tile = B*T/THREAD_NUM;
+	int block_x = (B+tile-1)/tile;
+	int block_y = (T+tile-1)/tile;
+
     for (int b = 0; b < B; b++) {
+
         for (int t = 0; t < T; t++) {
+
             float* out_bt = out + b * T * OC + t * OC;
+
             float* inp_bt = inp + b * T * C + t * C;
+
             for (int o = 0; o < OC; o++) {
+
                 float val = (bias != NULL) ? bias[o] : 0.0f;
+
                 float* wrow = weight + o*C;
+
                 for (int i = 0; i < C; i++) {
                     val += inp_bt[i] * wrow[i];
                 }
+
                 out_bt[o] = val;
             }
         }

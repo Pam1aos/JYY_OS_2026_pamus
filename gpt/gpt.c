@@ -94,13 +94,13 @@ typedef struct {
 
 
 
-static long long calc_one_block(int start_row, int start_col,
-								float* out,float* inp, float* weight, float* bias,
+static void calc_one_block(int start_row, int start_col,
+								float*out,float*inp, float* weight, float* bias,
 								int T, int C, int OC){
 
-	float* out_bt = out + start_row * T * OC + start_col * OC;
+	float *out_bt = out + start_row * T * OC + start_col * OC;
 
-	float* inp_bt = inp + start_row * T * C + start_col * C;
+	 float *inp_bt = inp + start_row * T * C + start_col * C;
 
 	for (int o = 0; o < OC; o++) {
 
@@ -117,7 +117,9 @@ static long long calc_one_block(int start_row, int start_col,
 
 }
 
-void *block_worker(void *arg){
+void *block_worker(void *arg,float* out,
+				   float* inp, float* weight, float* bias,
+				   int B, int T, int C, int OC){
 	ThreadArg *ta = (ThreadArg)*arg;
 
 	int tile = B*T/THREAD_NUM;
@@ -131,7 +133,9 @@ void *block_worker(void *arg){
 		int sr = by * tile;
 		int sc = bx * tile;
 
-		long long val = calc_one_block(sr, sc);
+		calc_one_block(sr, sc,float* out,
+		float* inp, float* weight, float* bias,
+		int B, int T, int C, int OC);
 	}
 }
 
@@ -149,29 +153,60 @@ void matmul_forward(float* out,
 	int block_x = (B+tile-1)/tile;
 	int block_y = (T+tile-1)/tile;
 
-    for (int b = 0; b < B; b++) {
+	int total = block_x*block_y;
+	pthread_t tids[THREAD_NUM];
+	ThreadArg *arg[THREAD_NUM];
+	int seg = total/THREAD_NUM;
 
-        for (int t = 0; t < T; t++) {
+	for(int i=0;i<seg;i++){
+		arg[i]->start_bid = i*seg;
+		arg[i]->end_bid = (i==total)?total :(i+1)*seg;
+		pthread_create(&tids[i],NULL, block_worker,&args[i]);
+	}
 
-            float* out_bt = out + b * T * OC + t * OC;
+	for (int i = 0; i < THREAD_NUM; ++i) {
+		pthread_join(tids[i],NULL);
+	}
 
-            float* inp_bt = inp + b * T * C + t * C;
-
-            for (int o = 0; o < OC; o++) {
-
-                float val = (bias != NULL) ? bias[o] : 0.0f;
-
-                float* wrow = weight + o*C;
-
-                for (int i = 0; i < C; i++) {
-                    val += inp_bt[i] * wrow[i];
-                }
-
-                out_bt[o] = val;
-            }
-        }
-    }
 }
+
+/*
+void amatmul_forward(float* out,
+					float* inp, float* weight, float* bias,
+					int B, int T, int C, int OC) {
+	// most of the running time is spent here and in matmul_backward
+	// OC is short for "output channels"
+	// inp is (B,T,C), weight is (OC, C), bias is (OC)
+	// out will be (B,T,OC)
+
+	int tile = B*T/THREAD_NUM;
+	int block_x = (B+tile-1)/tile;
+	int block_y = (T+tile-1)/tile;
+
+	for (int b = 0; b < B; b++) {
+
+		for (int t = 0; t < T; t++) {
+
+			float* out_bt = out + b * T * OC + t * OC;
+
+			float* inp_bt = inp + b * T * C + t * C;
+
+			for (int o = 0; o < OC; o++) {
+
+				float val = (bias != NULL) ? bias[o] : 0.0f;
+
+				float* wrow = weight + o*C;
+
+				for (int i = 0; i < C; i++) {
+					val += inp_bt[i] * wrow[i];
+				}
+
+				out_bt[o] = val;
+			}
+		}
+	}
+}
+*/
 
 void attention_forward(float* out, float* preatt, float* att,
                        float* inp,

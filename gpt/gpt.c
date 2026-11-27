@@ -90,25 +90,34 @@ void layernorm_forward(float* out, float* mean, float* rstd,
 typedef struct {
 	int start_bid;      // 本线程处理的起始下标（包含）
 	int end_bid;        // 本线程处理的结束下标（不包含）
+	float*out;float*inp; float* weight; float* bias;
+	int B;int T;int C;int OC;
 } ThreadArg;
 
 
 
-static void calc_one_block(int start_row, int start_col,
-								float*out,float*inp, float* weight, float* bias,
-								int T, int C, int OC){
+static void calc_one_block(int start_row, int start_col,ThreadArg* ta){
+	float*out = ta->out;
+	float*inp = ta->inp;
+	float*weight = ta->weight;
+	float*bias = ta->bias;
+
+	int B=ta->B;
+	int T=ta->T;
+	int C=ta->C;
+	int OC=ta->OC;
 
 	float *out_bt = out + start_row * T * OC + start_col * OC;
 
 	 float *inp_bt = inp + start_row * T * C + start_col * C;
 
-	for (int o = 0; o < OC; o++) {
+	for (int o = ta->start_bid; o < ta->end_bid; o++) {
 
 		float val = (bias != NULL) ? bias[o] : 0.0f;
 
 		float* wrow = weight + o*C;
 
-		for (int i = 0; i < C; i++) {
+		for (int i = 0; i < ta->C; i++) {
 			val += inp_bt[i] * wrow[i];
 		}
 
@@ -117,11 +126,28 @@ static void calc_one_block(int start_row, int start_col,
 
 }
 
-void *block_worker(void *arg,float* out,
-				   float* inp, float* weight, float* bias,
-				   int B, int T, int C, int OC){
-	ThreadArg *ta = (ThreadArg)*arg;
+void *block_worker(void *arg){
+	ThreadArg *ta = (ThreadArg*)arg;
 
+	for (int i = 0; i < ta->B; ++i) {
+		for (int j = 0; j < ta->T; ++j) {
+			calc_one_block(i,j,ta);
+		}
+	}
+
+	return NULL;
+
+//	int tile_b = 1;
+//	int tile_t = 2;
+//
+//	int tiles_b = (B+tile_b-1)/tile_b;
+//	int tiles_t = (B+tile_t-1)/tile_t;
+//	int total =tiles_b*tiles_t;
+//	for (int bid = 0; bid < ta->start_bid; ++bid) {
+//
+//	}
+//
+	/*
 	int tile = B*T/THREAD_NUM;
 	int block_x = (B+tile-1)/tile;
 	int block_y = (T+tile-1)/tile;
@@ -136,7 +162,7 @@ void *block_worker(void *arg,float* out,
 		calc_one_block(sr, sc,float* out,
 		float* inp, float* weight, float* bias,
 		int B, int T, int C, int OC);
-	}
+	}*/
 }
 
 
@@ -149,18 +175,34 @@ void matmul_forward(float* out,
     // inp is (B,T,C), weight is (OC, C), bias is (OC)
     // out will be (B,T,OC)
 
-	int tile = B*T/THREAD_NUM;
-	int block_x = (B+tile-1)/tile;
-	int block_y = (T+tile-1)/tile;
+//	int tile = B*T/THREAD_NUM;
+//	int block_x = (B+tile-1)/tile;
+//	int block_y = (T+tile-1)/tile;
+//
+//	int total = block_x*block_y;
 
-	int total = block_x*block_y;
 	pthread_t tids[THREAD_NUM];
-	ThreadArg *arg[THREAD_NUM];
-	int seg = total/THREAD_NUM;
+	ThreadArg args[THREAD_NUM];
 
-	for(int i=0;i<seg;i++){
-		arg[i]->start_bid = i*seg;
-		arg[i]->end_bid = (i==total)?total :(i+1)*seg;
+	for(int i=0;i<THREAD_NUM;i++){
+//		int start = i*seg;
+//		int  end = start+seg;
+//		if(end>total) end=total;
+//		if(start>total) start = total;
+
+		args[i].start_bid = OC*i/THREAD_NUM;
+		args[i].end_bid = OC*(i+1)/THREAD_NUM;
+		args[i].out = out;
+		args[i].inp = inp;
+		args[i].weight = weight;
+		args[i].bias = bias;
+		args[i].B = B;
+		args[i].T = T;
+		args[i].C = C;
+		args[i].OC = OC;
+
+//		arg[i]->start_bid = i*seg;
+//		arg[i]->end_bid = (i==total)?total :(i+1)*seg;
 		pthread_create(&tids[i],NULL, block_worker,&args[i]);
 	}
 
